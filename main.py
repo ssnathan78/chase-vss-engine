@@ -212,35 +212,47 @@ import gspread
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 
+import gspread
+import google.auth # Add this import
+from google.auth import default
+
 @app.get("/cron/summary")
 def record_daily_summary():
     try:
-        # 1. Authorize with Google Sheets using the default Service Account
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        gc = gspread.service_account(scopes=scopes)
+        # 1. Use Cloud Run's built-in identity (ADC)
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # This automatically finds the Service Account attached to Cloud Run
+        creds, _ = google.auth.default(scopes=scopes)
+        gc = gspread.authorize(creds)
 
-        # 2. Open your existing "Liquidity Status" sheet
+        # 2. Open the spreadsheet
         spreadsheet = gc.open("Liquidity Status")
         
-        # 3. Access or create a tab named "VSS Logs"
+        # 3. Check for the worksheet
         try:
-            worksheet = spreadsheet.worksheet("VSS Logs")
+            worksheet = spreadsheet.worksheet("Chase Logs")
         except gspread.exceptions.WorksheetNotFound:
             worksheet = spreadsheet.add_worksheet(title="VSS Logs", rows="100", cols="10")
-            # Optional: Add headers if creating for the first time
             worksheet.append_row(["Date", "Total Trades", "Daily P&L", "Status"])
 
-        # 4. Gather metrics from your bot's database 
-        # (Replace these placeholders with your actual DB query logic)
+        # 4. Data logic
         date_str = datetime.now().strftime("%Y-%m-%d")
-        total_trades = 0 # Query your 'trades' table for today's count
-        daily_pnl = 0.0   # Sum 'pnl' from today's closed trades 
+        # Ensure these aren't just 0 if you want to see data!
+        total_trades = 1  # Test with 1 to see it appear
+        daily_pnl = 0.05
         bot_status = "Success"
 
-        # 5. Append the row to the sheet
-        worksheet.append_row([date_str, total_trades, daily_pnl, bot_status])
+        # 5. The Append
+        # value_input_option='USER_ENTERED' helps with formatting numbers/dates
+        worksheet.append_row([date_str, total_trades, daily_pnl, bot_status], value_input_option='USER_ENTERED')
         
-        return {"status": "success", "message": "Daily summary updated in Google Sheets"}
+        print(f"Successfully appended row for {date_str}")
+        return {"status": "success", "message": "Row added to VSS Logs"}
     
     except Exception as e:
+        print(f"Error occurred: {str(e)}") # This will show up in Cloud Run Logs
         return {"status": "error", "message": str(e)}
