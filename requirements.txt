@@ -5,3 +5,5 @@ google-cloud-firestore
 jinja2
 pandas
 pandas-ta-classic
+gspread
+google-auth

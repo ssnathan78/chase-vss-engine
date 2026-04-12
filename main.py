@@ -203,3 +203,44 @@ def kite_callback(request_token: str):
     data = KiteConnect(api_key=KITE_API_KEY).generate_session(request_token, api_secret=KITE_API_SECRET)
     db.collection("system_state").document("auth").set({"access_token": data["access_token"], "time": datetime.now()})
     return RedirectResponse(url="/?auth=success")
+
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+import gspread
+from datetime import datetime
+from google.oauth2.service_account import Credentials
+
+@app.get("/cron/summary")
+def record_daily_summary():
+    try:
+        # 1. Authorize with Google Sheets using the default Service Account
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        gc = gspread.service_account(scopes=scopes)
+
+        # 2. Open your existing "Liquidity Status" sheet
+        spreadsheet = gc.open("Liquidity Status")
+        
+        # 3. Access or create a tab named "VSS Logs"
+        try:
+            worksheet = spreadsheet.worksheet("VSS Logs")
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title="VSS Logs", rows="100", cols="10")
+            # Optional: Add headers if creating for the first time
+            worksheet.append_row(["Date", "Total Trades", "Daily P&L", "Status"])
+
+        # 4. Gather metrics from your bot's database 
+        # (Replace these placeholders with your actual DB query logic)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        total_trades = 0 # Query your 'trades' table for today's count
+        daily_pnl = 0.0   # Sum 'pnl' from today's closed trades 
+        bot_status = "Success"
+
+        # 5. Append the row to the sheet
+        worksheet.append_row([date_str, total_trades, daily_pnl, bot_status])
+        
+        return {"status": "success", "message": "Daily summary updated in Google Sheets"}
+    
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
