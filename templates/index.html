@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chase Algo - Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>[v-cloak] { display: none; } .fade-enter-active, .fade-leave-active { transition: opacity 0.5s; } .fade-enter-from, .fade-leave-to { opacity: 0; }</style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 font-sans">
+    {% raw %}
+    <div id="app" class="max-w-6xl mx-auto" v-cloak>
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 bg-gray-800 p-6 rounded-2xl border border-gray-700 gap-4 shadow-2xl">
+            <div>
+                <h1 class="text-3xl font-black text-blue-500 italic uppercase">Chase Engine</h1>
+                <div class="flex flex-wrap items-center gap-4 mt-2">
+                    <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                        Regime: 
+                        <span :class="globalConfig.system_regime === 'NORMAL' ? 'text-green-400' : (globalConfig.system_regime === 'VOLATILE' ? 'text-yellow-400' : 'text-red-500')">
+                            {{ globalConfig?.system_regime }}
+                        </span>
+                    </p>
+                    
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Capital: ₹</span>
+                        <input type="number" 
+                               v-model.number="globalConfig.total_trading_capital" 
+                               @change="updateGlobalConfig" 
+                               class="bg-gray-900 border border-gray-600 text-green-400 text-xs font-black px-2 py-1 rounded w-28 outline-none focus:border-blue-500 transition-colors">
+                    </div>
+
+                    <button @click="toggleGlobalHalt" 
+                            :class="globalConfig?.manual_override?.halt_all_trading ? 'bg-red-600 border-red-400' : 'bg-green-600 border-green-400'"
+                            class="text-[10px] px-3 py-1 rounded-full font-black uppercase border transition shadow-sm">
+                        {{ globalConfig?.manual_override?.halt_all_trading ? '⏸️ Trading Paused' : '⚡ Live' }}
+                    </button>
+                </div>
+            </div>
+            <div class="flex gap-2 w-full md:w-auto">
+                <button @click="syncTokens" :disabled="syncing" class="flex-1 bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 px-4 rounded-xl transition uppercase text-xs">🔄 Sync Expiries</button>
+                <a href="/auth/login" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-xl transition uppercase text-xs text-center">Broker Auth</a>
+            </div>
+        </header>
+
+        <transition name="fade"><div v-if="saveSuccess" class="fixed top-5 right-5 bg-green-500 text-white px-6 py-3 rounded-xl shadow-2xl font-bold z-50">✅ Configuration Saved!</div></transition>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div v-for="inst in instruments" :key="inst.id" class="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden flex flex-col shadow-2xl">
+                <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                    <h3 class="text-xl font-bold text-yellow-400 italic uppercase">{{ inst.symbol }}</h3>
+                    <button @click="inst.active = !inst.active; updateInstrument(inst)" :class="inst.active ? 'text-green-400 border-green-500' : 'text-red-400 border-red-500'" class="text-[10px] font-bold py-1 px-3 rounded-full border uppercase tracking-widest">{{ inst.active ? 'Armed' : 'Halted' }}</button>
+                </div>
+
+                <div class="px-5 py-4 bg-gray-900/50 flex justify-between items-center border-b border-gray-700">
+                    <div v-if="inst.active_trade">
+                        <span class="text-[10px] text-gray-500 font-bold uppercase block mb-1">Position ({{ inst.active_trade.mode }})</span>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-bold text-blue-400">{{ inst.active_trade.type }} | Entry: {{ inst.active_trade.entry_price }}</span>
+                            <button @click="forceClose(inst)" class="bg-red-600 hover:bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded uppercase">Force Exit</button>
+                        </div>
+                    </div>
+                    <span v-else class="text-xs text-gray-700 italic">Flat</span>
+                    <div class="text-right">
+                        <span class="text-[10px] text-gray-500 font-bold uppercase block mb-1">Floating P&L</span>
+                        <span v-if="inst.active_trade" class="text-sm font-black" :class="getPnL(inst) >= 0 ? 'text-green-400' : 'text-red-400'">₹{{ getPnL(inst).toLocaleString() }}</span>
+                        <span v-else class="text-sm text-gray-700">--</span>
+                    </div>
+                </div>
+                
+                <div class="p-6 space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="col-span-2">
+                            <label class="text-[10px] uppercase text-gray-500 font-black mb-1 block">New Trade Mode</label>
+                            <div class="flex gap-2">
+                                <button @click="inst.trade_mode = 'PAPER'; updateInstrument(inst)" :class="inst.trade_mode === 'PAPER' ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-gray-900 border-gray-700 text-gray-600'" class="flex-1 py-2 rounded-lg border text-xs font-black transition">PAPER</button>
+                                <button @click="inst.trade_mode = 'REAL'; updateInstrument(inst)" :class="inst.trade_mode === 'REAL' ? 'bg-red-600 border-red-400 shadow-lg' : 'bg-gray-900 border-gray-700 text-gray-600'" class="flex-1 py-2 rounded-lg border text-xs font-black transition">REAL</button>
+                            </div>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-[10px] uppercase text-gray-500 font-black block">Sizing Strategy</label>
+                            <select v-model="inst.strategies.chase.position_sizing.mode" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs">
+                                <option value="FIXED">Fixed Lots</option>
+                                <option value="VOLATILITY_ADJUSTED">ATR Vol-Adjusted</option>
+                            </select>
+                        </div>
+                        <div><label class="text-[10px] uppercase text-gray-500 block mb-1">Multiplier</label><input type="number" v-model.number="inst.strategies.chase.position_sizing.fixed_lots" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm"></div>
+                        <div><label class="text-[10px] uppercase text-gray-500 block mb-1">EMA</label><input type="number" v-model.number="inst.strategies.chase.params.ema_period" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm"></div>
+                        <div><label class="text-[10px] uppercase text-gray-500 block mb-1">Units (Lot Size)</label><input type="number" v-model.number="inst.lot_size" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm"></div>
+                        <div><label class="text-[10px] uppercase text-gray-500 block mb-1 text-gray-500 italic">Symbol</label><input type="text" v-model="inst.symbol" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm uppercase"></div>
+                    </div>
+                    <button @click="updateInstrument(inst)" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition shadow-lg">Save Configuration</button>
+                </div>
+
+                <div class="mt-auto bg-black p-4 border-t border-gray-700 h-32 overflow-y-auto">
+                    <h4 class="text-[10px] font-bold text-gray-600 uppercase mb-2 tracking-widest">Logs</h4>
+                    <div v-for="log in inst.logs" class="flex gap-3 font-mono text-[9px] mb-1">
+                        <span class="text-gray-600">[{{ log.time }}]</span>
+                        <span :class="log.msg.includes('EXIT') || log.msg.includes('ENTRY') ? 'text-yellow-400 font-bold' : 'text-green-500'">{{ log.msg }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endraw %}
+    <script>
+        const { createApp, ref, onMounted } = Vue
+        createApp({
+            setup() {
+                const globalConfig = ref({}); const instruments = ref([]); const syncing = ref(false); const saveSuccess = ref(false);
+                
+                const load = async () => {
+                    const res = await fetch('/api/config'); const d = await res.json();
+                    globalConfig.value = d.global; instruments.value = d.instruments;
+                }
+                
+                const updateInstrument = async (inst) => {
+                    await fetch(`/api/config/${inst.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(inst) });
+                    triggerSaveSuccess();
+                }
+
+                // New dedicated method for global updates (Capital & Killswitch)
+                const updateGlobalConfig = async () => {
+                    await fetch('/api/global-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(globalConfig.value) });
+                    triggerSaveSuccess();
+                }
+
+                const toggleGlobalHalt = async () => {
+                    globalConfig.value.manual_override.halt_all_trading = !globalConfig.value.manual_override.halt_all_trading;
+                    await updateGlobalConfig();
+                }
+
+                const forceClose = async (inst) => {
+                    if(confirm(`Really exit ${inst.symbol}?`)) { await fetch(`/api/force-close/${inst.id}`, { method: 'POST' }); load(); }
+                }
+
+                const getPnL = (inst) => {
+                    if(!inst.active_trade || !inst.logs[0]) return 0;
+                    const log = inst.logs.find(l => l.msg.includes("Price:"));
+                    if(!log) return 0;
+                    const cp = parseFloat(log.msg.split("Price: ")[1].split(" |")[0]);
+                    let pnl = (cp - inst.active_trade.entry_price) * inst.active_trade.quantity;
+                    return inst.active_trade.type === 'SELL' ? -pnl : pnl;
+                }
+
+                const syncTokens = async () => { syncing.value = true; await fetch('/api/sync-tokens'); load(); syncing.value = false; }
+                
+                const triggerSaveSuccess = () => {
+                    saveSuccess.value = true; setTimeout(() => saveSuccess.value = false, 2000); load();
+                }
+
+                onMounted(() => { load(); setInterval(load, 15000); });
+                return { globalConfig, instruments, syncing, saveSuccess, updateInstrument, updateGlobalConfig, toggleGlobalHalt, forceClose, getPnL, syncTokens }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

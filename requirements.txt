@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+kiteconnect
+google-cloud-firestore
+jinja2
+pandas
+pandas-ta-classic
