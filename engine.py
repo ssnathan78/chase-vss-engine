@@ -59,7 +59,7 @@ def evaluate_chase_strategy(kite: KiteConnect, config: dict, total_capital: floa
         final_lots = min(max(1, int(raw_lots)), sizing_cfg.get("vol_adjusted_params", {}).get("max_lots", 10))
     else:
         final_lots = sizing_cfg.get("fixed_lots", 1)
-    sig_tol = config['chase_params']['signal_tolerance_pct']
+    sig_tol = config.get("strategies", {}).get("chase", {}).get("params", {}).get("signal_tolerance_pct", 0.002)
     if close_price > ema * (1 + sig_tol):
         return {"signal": "LONG_SETUP", "ema": ema, "trigger": latest['high'], "lots": final_lots, "close": close_price}
     elif close_price < ema * (1 - sig_tol):
